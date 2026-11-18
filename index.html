@@ -8,9 +8,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Groceries">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon-192.png">
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <title>Grocery List</title>
 <style>
   :root {
@@ -61,6 +61,9 @@
   }
 
   /* The language switch is the heart of the app: big, native-script, always visible. */
+  .sync { margin: -8px 2px 12px; font-size: 0.85rem; color: var(--muted); }
+  .sync::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--basil); margin-inline-end: 6px; vertical-align: middle; }
+  .sync.off::before { background: var(--saffron); }
   .langs {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
     background: var(--basil-soft); padding: 5px; border-radius: 16px; margin-bottom: 14px;
@@ -125,6 +128,7 @@
     <button class="share-btn" id="shareBtn">Share</button>
   </header>
 
+  <p class="sync" id="sync" hidden></p>
   <div class="langs" id="langs" role="group" aria-label="Language"></div>
 
   <div class="add">
@@ -168,7 +172,11 @@ const UI = {
   importQ: { en: "Open the shared list? It replaces the list on this phone.", ar: "فتح القائمة المشتركة؟ ستحل محل القائمة على هذا الهاتف.", si: "බෙදාගත් ලැයිස්තුව විවෘත කරන්නද? මෙම දුරකථනයේ ලැයිස්තුව ප්‍රතිස්ථාපනය වේ.", ta: "பகிரப்பட்ட பட்டியலைத் திறக்கவா? இது இந்த தொலைபேசியில் உள்ள பட்டியலை மாற்றும்." },
   imported:{ en: "Shared list opened.", ar: "تم فتح القائمة المشتركة.", si: "බෙදාගත් ලැයිස්තුව විවෘත විය.", ta: "பகிரப்பட்ட பட்டியல் திறக்கப்பட்டது." },
   shareText: { en: "My grocery list", ar: "قائمة مشترياتي", si: "මගේ බඩු ලැයිස්තුව", ta: "எனது மளிகைப் பட்டியல்" },
-  remove:  { en: "Remove", ar: "حذف", si: "ඉවත් කරන්න", ta: "நீக்கு" }
+  remove:  { en: "Remove", ar: "حذف", si: "ඉවත් කරන්න", ta: "நீக்கு" },
+  live:    { en: "Shared list · updates live", ar: "قائمة مشتركة · تتحدث مباشرة", si: "බෙදාගත් ලැයිස්තුව · සජීවීව යාවත්කාලීන වේ", ta: "பகிரப்பட்ட பட்டியல் · நேரலையில் புதுப்பிக்கப்படும்" },
+  offlineSync: { en: "Offline · changes will sync later", ar: "غير متصل · ستتم المزامنة لاحقًا", si: "නොබැඳි · පසුව සමමුහුර්ත වේ", ta: "இணைப்பில்லை · பின்னர் ஒத்திசைக்கப்படும்" },
+  notFound:{ en: "This shared list no longer exists.", ar: "هذه القائمة المشتركة لم تعد موجودة.", si: "මෙම බෙදාගත් ලැයිස්තුව තවදුරටත් නොමැත.", ta: "இந்த பகிரப்பட்ட பட்டியல் இனி இல்லை." },
+  sharing: { en: "Creating link…", ar: "جارٍ إنشاء الرابط…", si: "සබැඳිය සාදමින්…", ta: "இணைப்பை உருவாக்குகிறது…" }
 };
 
 // Common items, ready instantly and checked for shop wording: [English, Arabic, Sinhala, Tamil].
@@ -267,55 +275,114 @@ function fetchWithTimeout(url, ms) {
 }
 
 const inFlight = new Set();
+const failedTr = new Set();
 
 async function translateItem(id) {
   const item = items.find(i => i.id === id);
   if (!item || inFlight.has(id)) return;
   inFlight.add(id);
-  item.state = "working";
+  failedTr.delete(id);
   render();
-  const tr = { ...item.tr };
+  const tr = {};
   let failed = false;
-  await Promise.all(LANGS.filter(l => !tr[l]).map(async to => {
+  await Promise.all(LANGS.filter(l => !item.tr[l]).map(async to => {
     try { tr[to] = await translateOne(item.text, item.lang, to); }
     catch (e) { failed = true; }
   }));
   inFlight.delete(id);
-  const current = items.find(i => i.id === id);
-  if (!current) return;               // removed while translating
-  current.tr = tr;
-  current.state = failed ? "failed" : "ok";
-  saveLocal();
-  render();
+  if (failed) failedTr.add(id);
+  if (Object.keys(tr).length && items.some(i => i.id === id)) dispatch({ type: "setTr", id, tr });
+  else render();
   if (failed && !navigator.onLine) toast(t("offline"));
 }
 
 function translateAllMissing() {
-  items.filter(i => LANGS.some(l => !i.tr[l])).forEach(i => translateItem(i.id));
+  items.filter(i => LANGS.some(l => !i.tr[l]) && !inFlight.has(i.id) && !failedTr.has(i.id))
+       .forEach(i => translateItem(i.id));
 }
 
 // ---------- State ----------
+// The list shown = the last copy saved on the server + changes not yet sent.
+// Without a shared list (before the first Share), everything stays on this phone.
 
-let items = [];          // {id, text, lang, tr:{en,ar,si,ta}, done, state}
+const LANGS_ALL = LANGS;
+let base = [];           // last saved copy of the list
+let pending = [];        // changes not yet confirmed by the server
+let items = [];          // what is shown: base with pending changes applied
+let listId = null;       // short id of the shared list, e.g. "k3x9q2"
+let serverV = 0;
+let online = true;
 let viewLang = "en";
 
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+// Same rules as the server (api/list.js), so the phone and server always agree.
+function applyOp(list, op) {
+  switch (op.type) {
+    case "add":
+      return list.some(i => i.id === op.item.id) ? list : [op.item, ...list];
+    case "toggle":
+      return list.map(i => (i.id === op.id ? { ...i, done: !!op.done } : i));
+    case "remove":
+      return list.filter(i => i.id !== op.id);
+    case "clearDone":
+      return list.filter(i => !i.done);
+    case "setTr":
+      return list.map(i => {
+        if (i.id !== op.id) return i;
+        const tr = { ...i.tr };
+        LANGS_ALL.forEach(l => { if (op.tr[l] && !tr[l]) tr[l] = op.tr[l]; });
+        return { ...i, tr };
+      });
+    default:
+      return list;
+  }
+}
+
+function recompute() {
+  items = pending.reduce(applyOp, base.map(i => ({ ...i, tr: { ...(i.tr || {}) } })));
+}
+
+function dispatch(op) {
+  if (listId) {
+    pending.push(op);
+    recompute();
+    saveLocal();
+    render();
+    flush();
+  } else {
+    base = applyOp(base, op);
+    recompute();
+    saveLocal();
+    render();
+  }
+}
+
 function loadLocal() {
   try {
-    const saved = JSON.parse(localStorage.getItem("groceries.items") || "[]");
-    if (Array.isArray(saved)) items = saved.filter(i => i && i.text).map(i => ({ ...i, tr: i.tr || {}, state: "" }));
-  } catch (e) { items = []; }
+    const st = JSON.parse(localStorage.getItem("groceries.state") || "null");
+    if (st && typeof st === "object") {
+      listId = st.listId || null;
+      base = Array.isArray(st.base) ? st.base : [];
+      pending = Array.isArray(st.pending) ? st.pending : [];
+      serverV = st.v || 0;
+    } else {
+      // Lists saved by the earlier version of the app.
+      const old = JSON.parse(localStorage.getItem("groceries.items") || "[]");
+      base = Array.isArray(old) ? old.filter(i => i && i.text).map(({ state, ...i }) => ({ ...i, tr: i.tr || {} })) : [];
+    }
+  } catch (e) { base = []; pending = []; }
   try {
     const l = localStorage.getItem("groceries.lang");
     viewLang = LANGS.includes(l) ? l : guessPhoneLang();
   } catch (e) { viewLang = guessPhoneLang(); }
+  recompute();
 }
 
 function saveLocal() {
   try {
-    localStorage.setItem("groceries.items", JSON.stringify(items.map(({ state, ...rest }) => rest)));
-  } catch (e) { /* storage full or blocked: the list still works until the app closes */ }
+    localStorage.setItem("groceries.state", JSON.stringify({ listId, base, pending, v: serverV }));
+  } catch (e) { /* storage blocked: the list still works while the app is open */ }
 }
 
 function guessPhoneLang() {
@@ -329,6 +396,103 @@ function t(key, vars) {
   return s;
 }
 
+// ---------- Talking to the server ----------
+
+async function api(method, id, body) {
+  const url = "/api/list" + (id ? "?id=" + encodeURIComponent(id) : "");
+  const res = await fetchWithTimeout2(url, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  }, 10000);
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) { const err = new Error((data && data.error) || "http " + res.status); err.status = res.status; throw err; }
+  return data;
+}
+
+function fetchWithTimeout2(url, opts, ms) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctl.signal }).finally(() => clearTimeout(timer));
+}
+
+function setOnline(v) {
+  if (online !== v) { online = v; renderSync(); }
+}
+
+function acceptServer(data) {
+  base = Array.isArray(data.items) ? data.items : [];
+  serverV = data.v || 0;
+  recompute();
+  saveLocal();
+  render();
+  translateAllMissing();
+}
+
+let flushing = false;
+async function flush() {
+  if (!listId || flushing || !pending.length) return;
+  flushing = true;
+  try {
+    while (pending.length) {
+      const batch = pending.slice(0, 50);
+      const data = await api("POST", listId, { ops: batch });
+      pending = pending.slice(batch.length);
+      acceptServer(data);
+      setOnline(true);
+    }
+  } catch (e) {
+    if (e.status === 404) listGone();
+    else setOnline(false);
+  } finally {
+    flushing = false;
+  }
+}
+
+async function refresh() {
+  if (!listId || document.hidden) return;
+  if (pending.length) { flush(); return; }
+  try {
+    const data = await api("GET", listId);
+    setOnline(true);
+    if (!pending.length && !flushing && data.v !== serverV) acceptServer(data);
+  } catch (e) {
+    if (e.status === 404) listGone();
+    else setOnline(false);
+  }
+}
+
+function listGone() {
+  // The shared list was deleted or expired: keep the items on this phone as a private list.
+  toast(t("notFound"));
+  base = items;
+  pending = [];
+  listId = null;
+  serverV = 0;
+  history.replaceState(null, "", "/");
+  saveLocal();
+  render();
+}
+
+function openListFromPath() {
+  const m = location.pathname.match(/^\/l\/([a-z0-9]{4,12})\/?$/i);
+  if (m) {
+    const id = m[1].toLowerCase();
+    if (id !== listId) {
+      listId = id;
+      base = [];
+      pending = [];
+      serverV = 0;
+      recompute();
+      saveLocal();
+    }
+  } else if (listId) {
+    // Opened from the home screen: go back to the shared list used last time.
+    history.replaceState(null, "", "/l/" + listId);
+  }
+}
+
 // ---------- Actions ----------
 
 function addFromInput() {
@@ -336,41 +500,26 @@ function addFromInput() {
   // Split on commas (English and Arabic), semicolons and new lines.
   const parts = input.value.split(/[,،;؛\n]+/).map(s => s.trim()).filter(Boolean);
   if (!parts.length) { input.focus(); return; }
+  input.value = "";
   const added = [];
   for (const text of parts) {
     const lang = detectLang(text);
     const known = lookup(text);
-    const item = { id: newId(), text, lang, tr: known ? known : { [lang]: text }, done: false, state: "" };
-    if (!known) item.tr[lang] = text;
-    items.unshift(item);
+    const item = { id: newId(), text, lang, done: false, tr: known ? known : { [lang]: text } };
     added.push(item);
+    dispatch({ type: "add", item });
   }
-  input.value = "";
-  saveLocal();
-  render();
   input.focus();
-  added.filter(i => LANGS.some(l => !i.tr[l])).forEach(i => translateItem(i.id));
+  added.filter(i => !lookup(i.text)).forEach(i => translateItem(i.id));
 }
 
 function toggle(id) {
   const item = items.find(i => i.id === id);
-  if (!item) return;
-  item.done = !item.done;
-  saveLocal();
-  render();
+  if (item) dispatch({ type: "toggle", id, done: !item.done });
 }
 
-function removeItem(id) {
-  items = items.filter(i => i.id !== id);
-  saveLocal();
-  render();
-}
-
-function removeBought() {
-  items = items.filter(i => !i.done);
-  saveLocal();
-  render();
-}
+function removeItem(id) { dispatch({ type: "remove", id }); }
+function removeBought() { dispatch({ type: "clearDone" }); }
 
 function setLang(l) {
   viewLang = l;
@@ -378,9 +527,41 @@ function setLang(l) {
   render();
 }
 
-// ---------- Sharing by link ----------
-// The whole list (with translations and ticks) travels inside the link, so it needs no account or server.
+// ---------- Sharing ----------
 
+async function share() {
+  let url;
+  if (listId) {
+    url = location.origin + "/l/" + listId;
+  } else {
+    toast(t("sharing"));
+    try {
+      const data = await api("POST", null, { items });
+      listId = data.id;
+      pending = [];
+      acceptServer(data);
+      history.replaceState(null, "", "/l/" + listId);
+      renderSync();
+      url = location.origin + "/l/" + listId;
+    } catch (e) {
+      // No database connected yet: fall back to a link that carries the list inside it.
+      url = location.origin + "/#list=" + encodeList(items);
+    }
+  }
+  const title = t("title");
+  if (navigator.share) {
+    try { await navigator.share({ title, text: title, url }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast(t("copied"));
+  } catch (e) {
+    window.prompt(title, url);
+  }
+}
+
+// Long links from the earlier version still open.
 function encodeList(list) {
   const compact = list.map(i => [i.text, i.lang, i.done ? 1 : 0, i.tr.en || "", i.tr.ar || "", i.tr.si || "", i.tr.ta || ""]);
   const bytes = new TextEncoder().encode(JSON.stringify(compact));
@@ -400,28 +581,8 @@ function decodeList(code) {
     ["en", "ar", "si", "ta"].forEach((l, k) => { if (r[3 + k]) tr[l] = String(r[3 + k]); });
     const lang = LANGS.includes(r[1]) ? r[1] : detectLang(String(r[0]));
     if (!tr[lang]) tr[lang] = String(r[0]);
-    return { id: newId(), text: String(r[0]), lang, done: !!r[2], tr, state: "" };
+    return { id: newId(), text: String(r[0]), lang, done: !!r[2], tr };
   });
-}
-
-function shareLink() {
-  const base = location.href.split("#")[0];
-  return base + "#list=" + encodeList(items);
-}
-
-async function share() {
-  const url = shareLink();
-  const title = t("shareText");
-  if (navigator.share) {
-    try { await navigator.share({ title, text: title, url }); return; }
-    catch (e) { if (e && e.name === "AbortError") return; }
-  }
-  try {
-    await navigator.clipboard.writeText(url);
-    toast(t("copied"));
-  } catch (e) {
-    window.prompt(title, url);
-  }
 }
 
 function importFromHash() {
@@ -429,10 +590,13 @@ function importFromHash() {
   if (!m) return;
   let incoming;
   try { incoming = decodeList(m[1]); } catch (e) { incoming = null; }
-  history.replaceState(null, "", location.href.split("#")[0]);
+  history.replaceState(null, "", location.pathname);
   if (!incoming) return;
   if (items.length && !confirm(t("importQ"))) return;
-  items = incoming;
+  listId = null;
+  base = incoming;
+  pending = [];
+  recompute();
   saveLocal();
   render();
   toast(t("imported"));
@@ -466,6 +630,7 @@ function render() {
     langs.appendChild(b);
   });
 
+  renderSync();
   const list = document.getElementById("list");
   list.innerHTML = "";
   const done = items.filter(i => i.done).length;
@@ -497,12 +662,12 @@ function render() {
     text.appendChild(name);
     check.setAttribute("aria-label", name.textContent);
 
-    if (item.state === "working" && !item.tr[viewLang]) {
+    if (inFlight.has(item.id) && !item.tr[viewLang]) {
       const note = document.createElement("div");
       note.className = "orig";
       note.textContent = t("translating");
       text.appendChild(note);
-    } else if (!item.tr[viewLang]) {
+    } else if (!item.tr[viewLang] && failedTr.has(item.id)) {
       const retry = document.createElement("button");
       retry.className = "retry";
       retry.textContent = "↻ " + t("retry");
@@ -527,6 +692,14 @@ function render() {
   }
 }
 
+function renderSync() {
+  const el = document.getElementById("sync");
+  if (!listId) { el.hidden = true; return; }
+  el.hidden = false;
+  el.className = "sync" + (online ? "" : " off");
+  el.textContent = online ? t("live") : t("offlineSync");
+}
+
 let toastTimer;
 function toast(msg) {
   const el = document.getElementById("toast");
@@ -539,19 +712,23 @@ function toast(msg) {
 // ---------- Start ----------
 
 loadLocal();
+openListFromPath();
 render();
 importFromHash();
 translateAllMissing();
+if (listId) { flush(); refresh(); }
 
 document.getElementById("addBtn").addEventListener("click", addFromInput);
 document.getElementById("itemInput").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addFromInput(); } });
 document.getElementById("clearBtn").addEventListener("click", removeBought);
 document.getElementById("shareBtn").addEventListener("click", share);
 window.addEventListener("hashchange", importFromHash);
-window.addEventListener("online", translateAllMissing);
+window.addEventListener("online", () => { failedTr.clear(); translateAllMissing(); flush(); refresh(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+setInterval(refresh, 4000);   // check for the other person's changes every few seconds
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 </script>
 </body>
