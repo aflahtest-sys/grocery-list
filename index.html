@@ -60,19 +60,50 @@
     font: inherit; font-size: 0.95rem; font-weight: 600; border-radius: 999px; padding: 8px 16px; cursor: pointer;
   }
 
-  /* The language switch is the heart of the app: big, native-script, always visible. */
   .sync { margin: -8px 2px 12px; font-size: 0.85rem; color: var(--muted); }
   .sync::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--basil); margin-inline-end: 6px; vertical-align: middle; }
   .sync.off::before { background: var(--saffron); }
-  .langs {
-    display: flex; flex-wrap: wrap; gap: 6px;
-    background: var(--basil-soft); padding: 5px; border-radius: 16px; margin-bottom: 14px;
+
+  /* One language button opens a searchable list of every language. */
+  .lang-btn {
+    display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 14px;
+    font: inherit; color: var(--ink); background: var(--basil-soft); border: none;
+    border-radius: 16px; padding: 12px 16px; cursor: pointer; text-align: start;
   }
-  .langs button {
-    font: inherit; border: none; background: transparent; color: var(--ink);
-    flex: 1 1 auto; border-radius: 12px; padding: 10px 8px; cursor: pointer; font-size: 0.95rem; font-weight: 600;
+  .lang-btn .globe { font-size: 1.25rem; line-height: 1; }
+  .lang-btn #langName { flex: 1; font-weight: 700; font-size: 1.05rem; }
+  .lang-btn .chev { color: var(--muted); font-size: 0.9rem; }
+
+  .picker {
+    position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.45);
+    display: flex; align-items: flex-end; justify-content: center;
   }
-  .langs button[aria-pressed="true"] { background: var(--basil); color: var(--on-basil); }
+  .picker[hidden] { display: none; }
+  .sheet {
+    width: 100%; max-width: 560px; height: min(86vh, 720px); background: var(--surface); color: var(--ink);
+    border-radius: 22px 22px 0 0; display: flex; flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .sheet-top { display: flex; align-items: center; gap: 8px; padding: 16px 16px 10px; }
+  .sheet-top h2 { flex: 1; margin: 0; font-size: 1.2rem; }
+  .sheet-top button { font: inherit; font-size: 1.3rem; line-height: 1; background: none; border: none; color: var(--muted); padding: 6px 10px; cursor: pointer; }
+  .sheet input {
+    margin: 0 16px 8px; font: inherit; color: var(--ink); background: var(--bg);
+    border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; outline: none;
+  }
+  .sheet input:focus { border-color: var(--basil); }
+  .lang-list { overflow-y: auto; padding: 0 8px 16px; -webkit-overflow-scrolling: touch; }
+  .lang-head { font-size: 0.8rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 14px 10px 6px; }
+  .lang-row {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%;
+    font: inherit; color: var(--ink); background: none; border: none; border-radius: 12px;
+    padding: 12px 10px; cursor: pointer; text-align: start;
+  }
+  .lang-row .native { font-weight: 600; }
+  .lang-row .en-name { color: var(--muted); font-size: 0.9rem; }
+  .lang-row[aria-pressed="true"] { background: var(--basil-soft); }
+  .lang-row[aria-pressed="true"] .native::after { content: " ✓"; color: var(--basil); }
+  .lang-none { text-align: center; color: var(--muted); padding: 24px; }
 
   .add {
     display: flex; gap: 8px; background: var(--surface); border: 1.5px solid var(--line);
@@ -130,7 +161,11 @@
   </header>
 
   <p class="sync" id="sync" hidden></p>
-  <div class="langs" id="langs" role="group" aria-label="Language"></div>
+  <button class="lang-btn" id="langBtn" aria-haspopup="dialog">
+    <span class="globe" aria-hidden="true">🌐</span>
+    <span id="langName">English</span>
+    <span class="chev" aria-hidden="true">▼</span>
+  </button>
 
   <div class="add">
     <input id="itemInput" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="off">
@@ -146,15 +181,65 @@
   <div class="empty" id="empty"></div>
   <button class="link-btn new-list" id="newBtn"></button>
 </main>
+
+<div class="picker" id="picker" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+    <div class="sheet-top">
+      <h2 id="pickerTitle">Language</h2>
+      <button id="pickerClose" aria-label="Close">✕</button>
+    </div>
+    <input id="langSearch" type="search" autocomplete="off" autocapitalize="off">
+    <div class="lang-list" id="langList"></div>
+  </div>
+</div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 "use strict";
 
-const LANGS = ["en", "ar", "si", "ta", "sw"];
-const LANG_LABEL = { en: "English", ar: "العربية", si: "සිංහල", ta: "தமிழ்", sw: "Kiswahili" };
+// Every language Google Translate supports: [code, English name, native name].
+const ALL_LANGS = [
+  ["af","Afrikaans","Afrikaans"],["sq","Albanian","Shqip"],["am","Amharic","አማርኛ"],["ar","Arabic","العربية"],
+  ["hy","Armenian","Հայերեն"],["as","Assamese","অসমীয়া"],["ay","Aymara","Aymar aru"],["az","Azerbaijani","Azərbaycanca"],
+  ["bm","Bambara","Bamanankan"],["eu","Basque","Euskara"],["be","Belarusian","Беларуская"],["bn","Bengali","বাংলা"],
+  ["bho","Bhojpuri","भोजपुरी"],["bs","Bosnian","Bosanski"],["bg","Bulgarian","Български"],["ca","Catalan","Català"],
+  ["ceb","Cebuano","Cebuano"],["ny","Chichewa","Chichewa"],["zh-CN","Chinese (Simplified)","简体中文"],
+  ["zh-TW","Chinese (Traditional)","繁體中文"],["co","Corsican","Corsu"],["hr","Croatian","Hrvatski"],["cs","Czech","Čeština"],
+  ["da","Danish","Dansk"],["dv","Dhivehi","ދިވެހި"],["doi","Dogri","डोगरी"],["nl","Dutch","Nederlands"],
+  ["en","English","English"],["eo","Esperanto","Esperanto"],["et","Estonian","Eesti"],["ee","Ewe","Eʋegbe"],
+  ["tl","Filipino","Filipino"],["fi","Finnish","Suomi"],["fr","French","Français"],["fy","Frisian","Frysk"],
+  ["gl","Galician","Galego"],["ka","Georgian","ქართული"],["de","German","Deutsch"],["el","Greek","Ελληνικά"],
+  ["gn","Guarani","Avañe'ẽ"],["gu","Gujarati","ગુજરાતી"],["ht","Haitian Creole","Kreyòl ayisyen"],["ha","Hausa","Hausa"],
+  ["haw","Hawaiian","ʻŌlelo Hawaiʻi"],["iw","Hebrew","עברית"],["hi","Hindi","हिन्दी"],["hmn","Hmong","Hmoob"],
+  ["hu","Hungarian","Magyar"],["is","Icelandic","Íslenska"],["ig","Igbo","Igbo"],["ilo","Ilocano","Ilokano"],
+  ["id","Indonesian","Bahasa Indonesia"],["ga","Irish","Gaeilge"],["it","Italian","Italiano"],["ja","Japanese","日本語"],
+  ["jw","Javanese","Basa Jawa"],["kn","Kannada","ಕನ್ನಡ"],["kk","Kazakh","Қазақ тілі"],["km","Khmer","ខ្មែរ"],
+  ["rw","Kinyarwanda","Kinyarwanda"],["gom","Konkani","कोंकणी"],["ko","Korean","한국어"],["kri","Krio","Krio"],
+  ["ku","Kurdish (Kurmanji)","Kurdî"],["ckb","Kurdish (Sorani)","کوردی"],["ky","Kyrgyz","Кыргызча"],["lo","Lao","ລາວ"],
+  ["la","Latin","Latina"],["lv","Latvian","Latviešu"],["ln","Lingala","Lingála"],["lt","Lithuanian","Lietuvių"],
+  ["lg","Luganda","Luganda"],["lb","Luxembourgish","Lëtzebuergesch"],["mk","Macedonian","Македонски"],
+  ["mai","Maithili","मैथिली"],["mg","Malagasy","Malagasy"],["ms","Malay","Bahasa Melayu"],["ml","Malayalam","മലയാളം"],
+  ["mt","Maltese","Malti"],["mi","Maori","Māori"],["mr","Marathi","मराठी"],["mni-Mtei","Meitei (Manipuri)","ꯃꯤꯇꯩꯂꯣꯟ"],
+  ["lus","Mizo","Mizo ṭawng"],["mn","Mongolian","Монгол"],["my","Myanmar (Burmese)","မြန်မာ"],["ne","Nepali","नेपाली"],
+  ["no","Norwegian","Norsk"],["or","Odia","ଓଡ଼ିଆ"],["om","Oromo","Afaan Oromoo"],["ps","Pashto","پښتو"],
+  ["fa","Persian","فارسی"],["pl","Polish","Polski"],["pt","Portuguese","Português"],["pa","Punjabi","ਪੰਜਾਬੀ"],
+  ["qu","Quechua","Runasimi"],["ro","Romanian","Română"],["ru","Russian","Русский"],["sm","Samoan","Gagana Samoa"],
+  ["sa","Sanskrit","संस्कृतम्"],["gd","Scots Gaelic","Gàidhlig"],["nso","Sepedi","Sepedi"],["sr","Serbian","Српски"],
+  ["st","Sesotho","Sesotho"],["sn","Shona","chiShona"],["sd","Sindhi","سنڌي"],["si","Sinhala","සිංහල"],
+  ["sk","Slovak","Slovenčina"],["sl","Slovenian","Slovenščina"],["so","Somali","Soomaali"],["es","Spanish","Español"],
+  ["su","Sundanese","Basa Sunda"],["sw","Swahili","Kiswahili"],["sv","Swedish","Svenska"],["tg","Tajik","Тоҷикӣ"],
+  ["ta","Tamil","தமிழ்"],["tt","Tatar","Татар"],["te","Telugu","తెలుగు"],["th","Thai","ไทย"],["ti","Tigrinya","ትግርኛ"],
+  ["ts","Tsonga","Xitsonga"],["tr","Turkish","Türkçe"],["tk","Turkmen","Türkmençe"],["ak","Twi","Twi"],
+  ["uk","Ukrainian","Українська"],["ur","Urdu","اردو"],["ug","Uyghur","ئۇيغۇرچە"],["uz","Uzbek","Oʻzbekcha"],
+  ["vi","Vietnamese","Tiếng Việt"],["cy","Welsh","Cymraeg"],["xh","Xhosa","isiXhosa"],["yi","Yiddish","ייִדיש"],
+  ["yo","Yoruba","Yorùbá"],["zu","Zulu","isiZulu"]
+];
 
-// Interface text in every language, so the other person sees the whole app in theirs.
+const LANG_BY_CODE = new Map(ALL_LANGS.map(r => [r[0], { code: r[0], en: r[1], native: r[2] }]));
+const RTL = new Set(["ar", "iw", "fa", "ur", "ps", "sd", "ug", "yi", "dv", "ckb"]);
+const DICT_LANGS = ["en", "ar", "si", "ta", "sw"];   // columns of the built-in word list
+const UI_LANGS = ["en", "ar", "si", "ta", "sw"];     // interface text written by hand; others are translated once and remembered
+
 const UI = {
   title:   { en: "Grocery List", ar: "قائمة المشتريات", si: "බඩු ලැයිස්තුව", ta: "மளிகைப் பட்டியல்", sw: "Orodha ya Manunuzi" },
   share:   { en: "Share", ar: "مشاركة", si: "බෙදාගන්න", ta: "பகிர்", sw: "Shiriki" },
@@ -185,6 +270,12 @@ const UI = {
              ta: "இந்த தொலைபேசியில் புதிய வெற்று பட்டியலைத் தொடங்கவா? பகிரப்பட்ட பட்டியல் மற்றவர்களுக்கு இருக்கும், அதன் இணைப்பிலிருந்து மீண்டும் திறக்கலாம்.", sw: "Anza orodha mpya tupu kwenye simu hii? Orodha iliyoshirikiwa inabaki kwa wengine, na unaweza kuifungua tena kupitia kiungo chake." },
   sharing: { en: "Creating link…", ar: "جارٍ إنشاء الرابط…", si: "සබැඳිය සාදමින්…", ta: "இணைப்பை உருவாக்குகிறது…", sw: "Inatengeneza kiungo…" }
 };
+UI.language = { en: "Language", ar: "اللغة", si: "භාෂාව", ta: "மொழி", sw: "Lugha" };
+UI.searchLang = { en: "Search languages…", ar: "ابحث عن لغة…", si: "භාෂා සොයන්න…", ta: "மொழிகளைத் தேடுங்கள்…", sw: "Tafuta lugha…" };
+UI.recent = { en: "Recent", ar: "المستخدمة مؤخرًا", si: "මෑතදී", ta: "சமீபத்தியவை", sw: "Za hivi karibuni" };
+UI.allLangs = { en: "All languages", ar: "كل اللغات", si: "සියලු භාෂා", ta: "அனைத்து மொழிகள்", sw: "Lugha zote" };
+UI.noLang = { en: "No language found", ar: "لم يتم العثور على لغة", si: "භාෂාවක් හමු නොවීය", ta: "மொழி எதுவும் கிடைக்கவில்லை", sw: "Hakuna lugha iliyopatikana" };
+UI.close = { en: "Close", ar: "إغلاق", si: "වසන්න", ta: "மூடு", sw: "Funga" };
 
 // Common items, ready instantly: [English, Arabic, Sinhala, Tamil, Swahili]. An empty word is filled in by the online translator.
 const DICT = [
@@ -230,12 +321,18 @@ function norm(t) {
     .replace(/\s+/g, " ");
 }
 
-// Each language uses its own alphabet, so the script tells us what was typed.
-function detectLang(t) {
-  if (/[\u0D80-\u0DFF]/.test(t)) return "si";
-  if (/[\u0B80-\u0BFF]/.test(t)) return "ta";
-  if (/[\u0600-\u06FF\u0750-\u077F]/.test(t)) return "ar";
-  return "en";
+// Alphabets used by only one language tell us the language for sure.
+// Anything else (Latin, Arabic, Cyrillic letters…) is detected by the translator.
+const UNIQUE_SCRIPTS = [
+  [/[\u0D80-\u0DFF]/, "si"], [/[\u0B80-\u0BFF]/, "ta"], [/[\u0E00-\u0E7F]/, "th"], [/[\uAC00-\uD7AF\u1100-\u11FF]/, "ko"],
+  [/[\u3040-\u30FF]/, "ja"], [/[\u0370-\u03FF]/, "el"], [/[\u10A0-\u10FF]/, "ka"], [/[\u0530-\u058F]/, "hy"],
+  [/[\u1780-\u17FF]/, "km"], [/[\u0E80-\u0EFF]/, "lo"], [/[\u1000-\u109F]/, "my"], [/[\u0A80-\u0AFF]/, "gu"],
+  [/[\u0A00-\u0A7F]/, "pa"], [/[\u0C80-\u0CFF]/, "kn"], [/[\u0D00-\u0D7F]/, "ml"], [/[\u0C00-\u0C7F]/, "te"],
+  [/[\u0B00-\u0B7F]/, "or"], [/[\u0780-\u07BF]/, "dv"]
+];
+function scriptLang(t) {
+  for (const [re, code] of UNIQUE_SCRIPTS) if (re.test(t)) return code;
+  return null;
 }
 
 const DICT_INDEX = new Map();
@@ -244,7 +341,6 @@ Object.entries(ALIASES).forEach(([alias, en]) => {
   const row = DICT.find(r => r[0] === en);
   if (row) DICT_INDEX.set(norm(alias), row);
 });
-// Swahili extras.
 Object.entries({ "yai": "eggs", "kitunguu": "onions", "kiazi": "potatoes", "tufaha": "apples", "mafuta": "cooking oil" })
   .forEach(([alias, en]) => { const row = DICT.find(r => r[0] === en); if (row) DICT_INDEX.set(norm(alias), row); });
 
@@ -252,27 +348,29 @@ function lookup(text) {
   const row = DICT_INDEX.get(norm(text));
   if (!row) return null;
   const tr = {};
-  LANGS.forEach((l, k) => { if (row[k]) tr[l] = row[k]; });
+  DICT_LANGS.forEach((l, k) => { if (row[k]) tr[l] = row[k]; });
   return tr;
 }
 
-// Which language a known word is written in (English and Swahili share the same alphabet).
+// Which language a known word is written in.
 function knownLang(text) {
   const row = DICT_INDEX.get(norm(text));
   if (!row) return null;
   const n = norm(text);
   const k = row.findIndex(w => w && norm(w) === n);
-  return k >= 0 ? LANGS[k] : null;
+  return k >= 0 ? DICT_LANGS[k] : null;
 }
-const isLatin = lang => lang === "en" || lang === "sw";
 
 // ---------- Online translation ----------
 
-// Google's free web translator first, MyMemory as a backup.
+// MyMemory uses standard codes where Google uses older ones.
+const MYMEMORY_CODE = { iw: "he", jw: "jv" };
+
+// Google's free web translator first, MyMemory as a backup. "auto" lets Google detect the language.
 async function translateOne(text, from, to) {
   try {
     const url = "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t" +
-      "&sl=" + from + "&tl=" + to + "&q=" + encodeURIComponent(text);
+      "&sl=" + encodeURIComponent(from) + "&tl=" + encodeURIComponent(to) + "&q=" + encodeURIComponent(text);
     const res = await fetchWithTimeout(url, 8000);
     if (!res.ok) throw new Error("http " + res.status);
     const data = await res.json();
@@ -280,10 +378,11 @@ async function translateOne(text, from, to) {
     if (out) return out;
     throw new Error("empty");
   } catch (e) {
-    const src = from === "auto" ? (viewLang === "sw" ? "sw" : "en") : from;
-    if (src === to) return text;
+    const src = from === "auto" ? "en" : (MYMEMORY_CODE[from] || from);
+    const dst = MYMEMORY_CODE[to] || to;
+    if (src === dst) return text;
     const url = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) +
-      "&langpair=" + src + "|" + to;
+      "&langpair=" + encodeURIComponent(src + "|" + dst);
     const res = await fetchWithTimeout(url, 8000);
     if (!res.ok) throw new Error("http " + res.status);
     const data = await res.json();
@@ -293,45 +392,93 @@ async function translateOne(text, from, to) {
   }
 }
 
-function fetchWithTimeout(url, ms) {
+function fetchWithTimeout(url, ms, opts) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), ms);
-  return fetch(url, { signal: ctl.signal }).finally(() => clearTimeout(timer));
+  return fetch(url, { ...(opts || {}), signal: ctl.signal }).finally(() => clearTimeout(timer));
 }
 
-const inFlight = new Set();
+// Each phone translates items into the language it is showing, and shares the result,
+// so the list fills in for every language the people using it have chosen.
+const inFlight = new Set();   // "itemId|lang"
 const failedTr = new Set();
 
-async function translateItem(id) {
+async function translateItem(id, to) {
   const item = items.find(i => i.id === id);
-  if (!item || inFlight.has(id)) return;
-  inFlight.add(id);
-  failedTr.delete(id);
+  const key = id + "|" + to;
+  if (!item || item.tr[to] || inFlight.has(key)) return;
+  inFlight.add(key);
+  failedTr.delete(key);
   render();
-  const tr = {};
-  let failed = false;
-  await Promise.all(LANGS.filter(l => !item.tr[l]).map(async to => {
-    const from = isLatin(item.lang) && !lookup(item.text) ? "auto" : item.lang;
-    try { tr[to] = await translateOne(item.text, from, to); }
-    catch (e) { failed = true; }
-  }));
-  inFlight.delete(id);
-  if (failed) failedTr.add(id);
-  if (Object.keys(tr).length && items.some(i => i.id === id)) dispatch({ type: "setTr", id, tr });
+  let out = null;
+  try { out = await translateOne(item.text, item.lang || "auto", to); }
+  catch (e) { failedTr.add(key); }
+  inFlight.delete(key);
+  if (out && items.some(i => i.id === id)) dispatch({ type: "setTr", id, tr: { [to]: out } });
   else render();
-  if (failed && !navigator.onLine) toast(t("offline"));
+  if (!out && !navigator.onLine) toast(t("offline"));
 }
 
 function translateAllMissing() {
-  items.filter(i => LANGS.some(l => !i.tr[l]) && !inFlight.has(i.id) && !failedTr.has(i.id))
-       .forEach(i => translateItem(i.id));
+  items.forEach(i => {
+    if (!i.tr[viewLang] && !failedTr.has(i.id + "|" + viewLang)) translateItem(i.id, viewLang);
+  });
+}
+
+// ---------- Interface text for any language ----------
+
+const uiCache = {};   // lang -> { key: text }
+
+function loadUiCache(lang) {
+  if (uiCache[lang]) return uiCache[lang];
+  try {
+    const saved = JSON.parse(localStorage.getItem("groceries.ui." + lang) || "null");
+    if (saved && typeof saved === "object") uiCache[lang] = saved;
+  } catch (e) {}
+  return uiCache[lang] || null;
+}
+
+// Translate the whole interface once per language (one request), then remember it.
+async function ensureUi(lang) {
+  if (UI_LANGS.includes(lang) || loadUiCache(lang)) return;
+  const keys = Object.keys(UI);
+  // Numbers stand in for {d} and {n} so the translator keeps them in place.
+  const src = keys.map(k => UI[k].en.replace("{d}", "7").replace("{n}", "9").replace(/\n/g, " "));
+  try {
+    const url = "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=en&tl=" +
+      encodeURIComponent(lang) + "&q=" + encodeURIComponent(src.join("\n"));
+    const res = await fetchWithTimeout(url, 10000);
+    if (!res.ok) return;
+    const data = await res.json();
+    const lines = (data[0] || []).map(p => p[0]).join("").split("\n").map(s => s.trim());
+    if (lines.length !== keys.length) return;
+    const out = {};
+    keys.forEach((k, i) => {
+      let s = lines[i];
+      if (!s) return;
+      if (k === "count") {
+        s = s.replace(/[7٧۷७৭੭૭୭௭౭೭൭๗໗၇]/, "{d}").replace(/[9٩۹९৯੯૯୯௯౯೯൯๙໙၉]/, "{n}");
+        if (!s.includes("{d}") || !s.includes("{n}")) return;   // keep English rather than a wrong count
+      }
+      out[k] = s;
+    });
+    uiCache[lang] = out;
+    try { localStorage.setItem("groceries.ui." + lang, JSON.stringify(out)); } catch (e) {}
+    if (viewLang === lang) render();
+  } catch (e) { /* offline: English interface until next time */ }
+}
+
+function t(key, vars) {
+  let s = (UI[key] && UI[key][viewLang]) || (loadUiCache(viewLang) || {})[key] || (UI[key] && UI[key].en) || key;
+  if (vars) for (const k in vars) s = s.replace("{" + k + "}", vars[k]);
+  return s;
 }
 
 // ---------- State ----------
 // The list shown = the last copy saved on the server + changes not yet sent.
 // Without a shared list (before the first Share), everything stays on this phone.
 
-const LANGS_ALL = LANGS;
+const CODE_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;
 let base = [];           // last saved copy of the list
 let pending = [];        // changes not yet confirmed by the server
 let items = [];          // what is shown: base with pending changes applied
@@ -357,7 +504,7 @@ function applyOp(list, op) {
       return list.map(i => {
         if (i.id !== op.id) return i;
         const tr = { ...i.tr };
-        LANGS_ALL.forEach(l => { if (op.tr[l] && !tr[l]) tr[l] = op.tr[l]; });
+        Object.keys(op.tr || {}).forEach(l => { if (CODE_RE.test(l) && op.tr[l] && !tr[l]) tr[l] = op.tr[l]; });
         return { ...i, tr };
       });
     default:
@@ -400,7 +547,7 @@ function loadLocal() {
   } catch (e) { base = []; pending = []; }
   try {
     const l = localStorage.getItem("groceries.lang");
-    viewLang = LANGS.includes(l) ? l : guessPhoneLang();
+    viewLang = LANG_BY_CODE.has(l) ? l : guessPhoneLang();
   } catch (e) { viewLang = guessPhoneLang(); }
   recompute();
 }
@@ -411,16 +558,19 @@ function saveLocal() {
   } catch (e) { /* storage blocked: the list still works while the app is open */ }
 }
 
+// Open in the phone's own language when we support it.
 function guessPhoneLang() {
-  const langs = (navigator.languages || [navigator.language || "en"]).map(l => String(l).slice(0, 2).toLowerCase());
-  return langs.find(l => LANGS.includes(l)) || "en";
+  const alias = { he: "iw", jv: "jw", fil: "tl", nb: "no", nn: "no", zh: "zh-CN" };
+  for (const raw of (navigator.languages || [navigator.language || "en"])) {
+    const full = String(raw);
+    if (/^zh-(TW|HK|MO|Hant)/i.test(full)) return "zh-TW";
+    const base = full.split("-")[0].toLowerCase();
+    const code = alias[base] || base;
+    if (LANG_BY_CODE.has(code)) return code;
+  }
+  return "en";
 }
 
-function t(key, vars) {
-  let s = (UI[key] && (UI[key][viewLang] || UI[key].en)) || key;
-  if (vars) for (const k in vars) s = s.replace("{" + k + "}", vars[k]);
-  return s;
-}
 
 // ---------- Talking to the server ----------
 
@@ -530,17 +680,16 @@ function addFromInput() {
   const added = [];
   for (const text of parts) {
     const known = lookup(text);
-    let lang = detectLang(text);
-    // Latin letters could be English or Swahili: use the word list, otherwise the language the app is shown in.
-    if (lang === "en") lang = knownLang(text) || (viewLang === "sw" ? "sw" : "en");
-    // For unknown Latin-script words, leave English and Swahili to the translator, which detects the language.
-    const tr = known ? known : (isLatin(lang) ? {} : { [lang]: text });
+    // The language is certain for words in the built-in list and for alphabets used by one language only.
+    // Otherwise "auto": the translator works out which language it is.
+    const lang = knownLang(text) || scriptLang(text) || "auto";
+    const tr = known ? known : (lang !== "auto" ? { [lang]: text } : {});
     const item = { id: newId(), text, lang, done: false, tr };
     added.push(item);
     dispatch({ type: "add", item });
   }
   input.focus();
-  added.filter(i => LANGS.some(l => !i.tr[l])).forEach(i => translateItem(i.id));
+  added.forEach(i => translateItem(i.id, viewLang));
 }
 
 function toggle(id) {
@@ -564,9 +713,84 @@ function removeItem(id) { dispatch({ type: "remove", id }); }
 function removeBought() { dispatch({ type: "clearDone" }); }
 
 function setLang(l) {
+  if (!LANG_BY_CODE.has(l)) return;
+  const previous = viewLang;
   viewLang = l;
-  try { localStorage.setItem("groceries.lang", l); } catch (e) {}
+  recent = [l, previous, ...recent].filter((x, i, arr) => arr.indexOf(x) === i).slice(0, 5);
+  try {
+    localStorage.setItem("groceries.lang", l);
+    localStorage.setItem("groceries.recentLangs", JSON.stringify(recent));
+  } catch (e) {}
   render();
+  ensureUi(l);
+  translateAllMissing();
+}
+
+let recent = [];
+try { recent = JSON.parse(localStorage.getItem("groceries.recentLangs") || "[]").filter(c => LANG_BY_CODE.has(c)); } catch (e) {}
+
+// ---------- Language picker ----------
+
+function openPicker() {
+  const sheet = document.getElementById("picker");
+  sheet.hidden = false;
+  document.body.style.overflow = "hidden";
+  const q = document.getElementById("langSearch");
+  q.value = "";
+  renderPicker();
+  setTimeout(() => q.focus(), 50);
+}
+
+function closePicker() {
+  document.getElementById("picker").hidden = true;
+  document.body.style.overflow = "";
+  document.getElementById("langBtn").focus();
+}
+
+function langRow(code) {
+  const L = LANG_BY_CODE.get(code);
+  const b = document.createElement("button");
+  b.className = "lang-row";
+  b.setAttribute("aria-pressed", String(code === viewLang));
+  const n = document.createElement("span");
+  n.className = "native";
+  n.textContent = L.native;
+  n.dir = "auto";
+  b.appendChild(n);
+  if (L.native !== L.en) {
+    const e = document.createElement("span");
+    e.className = "en-name";
+    e.textContent = L.en;
+    b.appendChild(e);
+  }
+  b.addEventListener("click", () => { setLang(code); closePicker(); });
+  return b;
+}
+
+function renderPicker() {
+  document.getElementById("pickerTitle").textContent = t("language");
+  document.getElementById("pickerClose").setAttribute("aria-label", t("close"));
+  const q = document.getElementById("langSearch");
+  q.placeholder = t("searchLang");
+  const term = norm(q.value);
+  const box = document.getElementById("langList");
+  box.innerHTML = "";
+  const heading = text => { const h = document.createElement("div"); h.className = "lang-head"; h.textContent = text; box.appendChild(h); };
+  if (!term) {
+    const rec = [viewLang, ...recent.filter(c => c !== viewLang)].slice(0, 5);
+    heading(t("recent"));
+    rec.forEach(c => box.appendChild(langRow(c)));
+    heading(t("allLangs"));
+  }
+  const matches = ALL_LANGS.filter(([code, en, native]) =>
+    !term || norm(en).includes(term) || norm(native).includes(term) || code.toLowerCase() === term);
+  matches.forEach(([code]) => box.appendChild(langRow(code)));
+  if (!matches.length) {
+    const p = document.createElement("p");
+    p.className = "lang-none";
+    p.textContent = t("noLang");
+    box.appendChild(p);
+  }
 }
 
 // ---------- Sharing ----------
@@ -605,7 +829,7 @@ async function share() {
 
 // Long links from the earlier version still open.
 function encodeList(list) {
-  const compact = list.map(i => [i.text, i.lang, i.done ? 1 : 0, i.tr.en || "", i.tr.ar || "", i.tr.si || "", i.tr.ta || "", i.tr.sw || ""]);
+  const compact = list.map(i => [i.text, i.lang, i.done ? 1 : 0, i.tr]);
   const bytes = new TextEncoder().encode(JSON.stringify(compact));
   let bin = "";
   bytes.forEach(b => { bin += String.fromCharCode(b); });
@@ -620,9 +844,12 @@ function decodeList(code) {
   if (!Array.isArray(compact)) throw new Error("bad list");
   return compact.filter(r => Array.isArray(r) && r[0]).map(r => {
     const tr = {};
-    ["en", "ar", "si", "ta", "sw"].forEach((l, k) => { if (r[3 + k]) tr[l] = String(r[3 + k]); });
-    const lang = LANGS.includes(r[1]) ? r[1] : detectLang(String(r[0]));
-    if (!tr[lang] && !isLatin(lang)) tr[lang] = String(r[0]);
+    if (r[3] && typeof r[3] === "object") {
+      Object.keys(r[3]).forEach(l => { if (CODE_RE.test(l) && r[3][l]) tr[l] = String(r[3][l]); });
+    } else {
+      ["en", "ar", "si", "ta", "sw"].forEach((l, k) => { if (r[3 + k]) tr[l] = String(r[3 + k]); });
+    }
+    const lang = typeof r[1] === "string" && (CODE_RE.test(r[1]) || r[1] === "auto") ? r[1] : "auto";
     return { id: newId(), text: String(r[0]), lang, done: !!r[2], tr };
   });
 }
@@ -650,7 +877,7 @@ function importFromHash() {
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 function render() {
-  const rtl = viewLang === "ar";
+  const rtl = RTL.has(viewLang);
   document.documentElement.lang = viewLang;
   document.documentElement.dir = rtl ? "rtl" : "ltr";
   document.title = t("title");
@@ -664,15 +891,10 @@ function render() {
   document.getElementById("newBtn").textContent = t("newList");
   document.getElementById("newBtn").style.display = (listId || items.length) ? "block" : "none";
 
-  const langs = document.getElementById("langs");
-  langs.innerHTML = "";
-  LANGS.forEach(l => {
-    const b = document.createElement("button");
-    b.textContent = LANG_LABEL[l];
-    b.setAttribute("aria-pressed", String(l === viewLang));
-    b.addEventListener("click", () => setLang(l));
-    langs.appendChild(b);
-  });
+  const L = LANG_BY_CODE.get(viewLang);
+  document.getElementById("langName").textContent = L.native;
+  document.getElementById("langBtn").setAttribute("aria-label", t("language") + ": " + L.native + " (" + L.en + ")");
+  if (!document.getElementById("picker").hidden) renderPicker();
 
   renderSync();
   const list = document.getElementById("list");
@@ -706,18 +928,19 @@ function render() {
     text.appendChild(name);
     check.setAttribute("aria-label", name.textContent);
 
-    if (inFlight.has(item.id) && !item.tr[viewLang]) {
+    const key = item.id + "|" + viewLang;
+    if (inFlight.has(key) && !item.tr[viewLang]) {
       const note = document.createElement("div");
       note.className = "orig";
       note.textContent = t("translating");
       text.appendChild(note);
-    } else if (!item.tr[viewLang] && failedTr.has(item.id)) {
+    } else if (!item.tr[viewLang] && failedTr.has(key)) {
       const retry = document.createElement("button");
       retry.className = "retry";
       retry.textContent = "↻ " + t("retry");
-      retry.addEventListener("click", e => { e.stopPropagation(); translateItem(item.id); });
+      retry.addEventListener("click", e => { e.stopPropagation(); translateItem(item.id, viewLang); });
       text.appendChild(retry);
-    } else if (item.lang !== viewLang) {
+    } else if (norm(name.textContent) !== norm(item.text)) {
       // Show what was originally typed, so both people can double-check the translation.
       const orig = document.createElement("div");
       orig.className = "orig";
@@ -767,14 +990,21 @@ document.getElementById("itemInput").addEventListener("keydown", e => { if (e.ke
 document.getElementById("clearBtn").addEventListener("click", removeBought);
 document.getElementById("shareBtn").addEventListener("click", share);
 document.getElementById("newBtn").addEventListener("click", startNewList);
+document.getElementById("langBtn").addEventListener("click", openPicker);
+document.getElementById("pickerClose").addEventListener("click", closePicker);
+document.getElementById("picker").addEventListener("click", e => { if (e.target.id === "picker") closePicker(); });
+document.getElementById("langSearch").addEventListener("input", renderPicker);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !document.getElementById("picker").hidden) closePicker(); });
+ensureUi(viewLang);
 window.addEventListener("hashchange", importFromHash);
-window.addEventListener("online", () => { failedTr.clear(); translateAllMissing(); flush(); refresh(); });
+window.addEventListener("online", () => { failedTr.clear(); ensureUi(viewLang); translateAllMissing(); flush(); refresh(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 setInterval(refresh, 4000);   // check for the other person's changes every few seconds
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
+
 </script>
 </body>
 </html>

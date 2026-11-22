@@ -7,7 +7,8 @@ const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 const KEEP_SECONDS = 60 * 60 * 24 * 365;   // lists are kept for a year after the last change
 const MAX_ITEMS = 300;
-const LANGS = ["en", "ar", "si", "ta", "sw"];
+const CODE_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;   // language codes such as "en", "fil", "zh-CN"
+const MAX_LANGS_PER_ITEM = 40;
 
 // Save only if nobody else saved in the meantime (compares the version number).
 const SAVE_IF_SAME_VERSION = `
@@ -35,11 +36,14 @@ const str = (v, max) => String(v == null ? "" : v).slice(0, max);
 function cleanItem(i) {
   if (!i || typeof i !== "object" || !i.id || !i.text) return null;
   const tr = {};
-  if (i.tr && typeof i.tr === "object") LANGS.forEach(l => { if (i.tr[l]) tr[l] = str(i.tr[l], 200); });
+  if (i.tr && typeof i.tr === "object") {
+    Object.keys(i.tr).filter(l => CODE_RE.test(l) && i.tr[l]).slice(0, MAX_LANGS_PER_ITEM)
+      .forEach(l => { tr[l] = str(i.tr[l], 200); });
+  }
   return {
     id: str(i.id, 40),
     text: str(i.text, 200),
-    lang: LANGS.includes(i.lang) ? i.lang : "en",
+    lang: typeof i.lang === "string" && (CODE_RE.test(i.lang) || i.lang === "auto") ? i.lang : "auto",
     done: !!i.done,
     tr
   };
@@ -64,7 +68,9 @@ function applyOp(items, op) {
       return items.map(i => {
         if (i.id !== op.id || !op.tr || typeof op.tr !== "object") return i;
         const tr = { ...i.tr };
-        LANGS.forEach(l => { if (op.tr[l] && !tr[l]) tr[l] = str(op.tr[l], 200); });
+        Object.keys(op.tr).forEach(l => {
+          if (CODE_RE.test(l) && op.tr[l] && !tr[l] && Object.keys(tr).length < MAX_LANGS_PER_ITEM) tr[l] = str(op.tr[l], 200);
+        });
         return { ...i, tr };
       });
     default:

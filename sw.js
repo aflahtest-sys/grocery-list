@@ -1,5 +1,5 @@
 // Keeps the app working offline. The shared list and translations always come from the network.
-const CACHE = "groceries-v2";
+const CACHE = "groceries-v3";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", e => {
