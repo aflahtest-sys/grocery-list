@@ -7,7 +7,7 @@ const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 const KEEP_SECONDS = 60 * 60 * 24 * 365;   // lists are kept for a year after the last change
 const MAX_ITEMS = 300;
-const LANGS = ["en", "ar", "si", "ta"];
+const LANGS = ["en", "ar", "si", "ta", "sw"];
 
 // Save only if nobody else saved in the meantime (compares the version number).
 const SAVE_IF_SAME_VERSION = `
@@ -75,7 +75,7 @@ function applyOp(items, op) {
 function newId() {
   const abc = "abcdefghijkmnpqrstuvwxyz23456789";   // no look-alike letters such as l/1, o/0
   let s = "";
-  for (let k = 0; k < 6; k++) s += abc[Math.floor(Math.random() * abc.length)];
+  for (let k = 0; k < 10; k++) s += abc[Math.floor(Math.random() * abc.length)];
   return s;
 }
 
@@ -90,7 +90,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const id = typeof req.query.id === "string" ? req.query.id.toLowerCase() : "";
-    if (id && !/^[a-z0-9]{4,12}$/.test(id)) return res.status(400).json({ error: "bad_id" });
+    if (id && !/^[a-z0-9]{4,16}$/.test(id)) return res.status(400).json({ error: "bad_id" });
 
     if (req.method === "GET") {
       if (!id) return res.status(400).json({ error: "missing_id" });

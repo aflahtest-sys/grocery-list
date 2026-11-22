@@ -65,12 +65,12 @@
   .sync::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--basil); margin-inline-end: 6px; vertical-align: middle; }
   .sync.off::before { background: var(--saffron); }
   .langs {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    display: flex; flex-wrap: wrap; gap: 6px;
     background: var(--basil-soft); padding: 5px; border-radius: 16px; margin-bottom: 14px;
   }
   .langs button {
     font: inherit; border: none; background: transparent; color: var(--ink);
-    border-radius: 12px; padding: 10px 4px; cursor: pointer; font-size: 1rem; font-weight: 600;
+    flex: 1 1 auto; border-radius: 12px; padding: 10px 8px; cursor: pointer; font-size: 0.95rem; font-weight: 600;
   }
   .langs button[aria-pressed="true"] { background: var(--basil); color: var(--on-basil); }
 
@@ -109,6 +109,7 @@
   .retry { font: inherit; font-size: 0.8rem; color: var(--saffron); background: none; border: none; padding: 0; cursor: pointer; text-align: start; }
   .del { flex: none; font-size: 1.2rem; line-height: 1; color: var(--muted); background: none; border: none; padding: 8px; cursor: pointer; }
 
+  .new-list { display: block; margin: 18px auto 0; }
   .empty { text-align: center; color: var(--muted); padding: 36px 16px; background: var(--surface); border: 1px dashed var(--line); border-radius: 16px; }
 
   .toast {
@@ -143,66 +144,72 @@
   </div>
   <ul id="list"></ul>
   <div class="empty" id="empty"></div>
+  <button class="link-btn new-list" id="newBtn"></button>
 </main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 "use strict";
 
-const LANGS = ["en", "ar", "si", "ta"];
-const LANG_LABEL = { en: "English", ar: "العربية", si: "සිංහල", ta: "தமிழ்" };
+const LANGS = ["en", "ar", "si", "ta", "sw"];
+const LANG_LABEL = { en: "English", ar: "العربية", si: "සිංහල", ta: "தமிழ்", sw: "Kiswahili" };
 
 // Interface text in every language, so the other person sees the whole app in theirs.
 const UI = {
-  title:   { en: "Grocery List", ar: "قائمة المشتريات", si: "බඩු ලැයිස්තුව", ta: "மளிகைப் பட்டியல்" },
-  share:   { en: "Share", ar: "مشاركة", si: "බෙදාගන්න", ta: "பகிர்" },
-  add:     { en: "Add", ar: "إضافة", si: "එකතු කරන්න", ta: "சேர்" },
-  placeholder: { en: "Type items in any language…", ar: "اكتب الأغراض بأي لغة…", si: "ඕනෑම භාෂාවකින් ලියන්න…", ta: "எந்த மொழியிலும் எழுதுங்கள்…" },
+  title:   { en: "Grocery List", ar: "قائمة المشتريات", si: "බඩු ලැයිස්තුව", ta: "மளிகைப் பட்டியல்", sw: "Orodha ya Manunuzi" },
+  share:   { en: "Share", ar: "مشاركة", si: "බෙදාගන්න", ta: "பகிர்", sw: "Shiriki" },
+  add:     { en: "Add", ar: "إضافة", si: "එකතු කරන්න", ta: "சேர்", sw: "Ongeza" },
+  placeholder: { en: "Type items in any language…", ar: "اكتب الأغراض بأي لغة…", si: "ඕනෑම භාෂාවකින් ලියන්න…", ta: "எந்த மொழியிலும் எழுதுங்கள்…", sw: "Andika bidhaa kwa lugha yoyote…" },
   tip:     { en: "Add several at once with commas: milk, bread, eggs",
              ar: "أضف عدة أغراض مع فواصل: حليب، خبز، بيض",
              si: "කොමා යොදා කිහිපයක් එකවර: කිරි, පාන්, බිත්තර",
-             ta: "காற்புள்ளியுடன் பல பொருட்கள்: பால், ரொட்டி, முட்டை" },
-  count:   { en: "{d} of {n} bought", ar: "تم شراء {d} من {n}", si: "{n} න් {d} ක් ගත්තා", ta: "{n} இல் {d} வாங்கப்பட்டது" },
-  clear:   { en: "Remove bought", ar: "حذف المشتراة", si: "ගත් ඒවා ඉවත් කරන්න", ta: "வாங்கியவற்றை நீக்கு" },
-  empty:   { en: "Your list is empty. Add the first item above.", ar: "القائمة فارغة. أضف أول غرض في الأعلى.", si: "ලැයිස්තුව හිස්ය. ඉහතින් පළමු භාණ්ඩය එකතු කරන්න.", ta: "பட்டியல் காலியாக உள்ளது. மேலே முதல் பொருளைச் சேர்க்கவும்." },
-  translating: { en: "Translating…", ar: "جارٍ الترجمة…", si: "පරිවර්තනය කරමින්…", ta: "மொழிபெயர்க்கிறது…" },
-  retry:   { en: "Not translated yet. Tap to try again", ar: "لم تُترجم بعد. اضغط للمحاولة مجددًا", si: "තවම පරිවර්තනය නොවීය. නැවත උත්සාහ කිරීමට ඔබන්න", ta: "இன்னும் மொழிபெயர்க்கப்படவில்லை. மீண்டும் முயற்சிக்க அழுத்தவும்" },
-  offline: { en: "No internet. Items will translate when you are back online.", ar: "لا يوجد إنترنت. ستُترجم الأغراض عند عودة الاتصال.", si: "අන්තර්ජාලය නැත. සම්බන්ධ වූ විට පරිවර්තනය වේ.", ta: "இணையம் இல்லை. இணைப்பு வந்ததும் மொழிபெயர்க்கப்படும்." },
-  copied:  { en: "Link copied. Paste it in WhatsApp.", ar: "تم نسخ الرابط. الصقه في واتساب.", si: "සබැඳිය පිටපත් කළා. WhatsApp හි අලවන්න.", ta: "இணைப்பு நகலெடுக்கப்பட்டது. WhatsApp-இல் ஒட்டவும்." },
-  importQ: { en: "Open the shared list? It replaces the list on this phone.", ar: "فتح القائمة المشتركة؟ ستحل محل القائمة على هذا الهاتف.", si: "බෙදාගත් ලැයිස්තුව විවෘත කරන්නද? මෙම දුරකථනයේ ලැයිස්තුව ප්‍රතිස්ථාපනය වේ.", ta: "பகிரப்பட்ட பட்டியலைத் திறக்கவா? இது இந்த தொலைபேசியில் உள்ள பட்டியலை மாற்றும்." },
-  imported:{ en: "Shared list opened.", ar: "تم فتح القائمة المشتركة.", si: "බෙදාගත් ලැයිස්තුව විවෘත විය.", ta: "பகிரப்பட்ட பட்டியல் திறக்கப்பட்டது." },
-  shareText: { en: "My grocery list", ar: "قائمة مشترياتي", si: "මගේ බඩු ලැයිස්තුව", ta: "எனது மளிகைப் பட்டியல்" },
-  remove:  { en: "Remove", ar: "حذف", si: "ඉවත් කරන්න", ta: "நீக்கு" },
-  live:    { en: "Shared list · updates live", ar: "قائمة مشتركة · تتحدث مباشرة", si: "බෙදාගත් ලැයිස්තුව · සජීවීව යාවත්කාලීන වේ", ta: "பகிரப்பட்ட பட்டியல் · நேரலையில் புதுப்பிக்கப்படும்" },
-  offlineSync: { en: "Offline · changes will sync later", ar: "غير متصل · ستتم المزامنة لاحقًا", si: "නොබැඳි · පසුව සමමුහුර්ත වේ", ta: "இணைப்பில்லை · பின்னர் ஒத்திசைக்கப்படும்" },
-  notFound:{ en: "This shared list no longer exists.", ar: "هذه القائمة المشتركة لم تعد موجودة.", si: "මෙම බෙදාගත් ලැයිස්තුව තවදුරටත් නොමැත.", ta: "இந்த பகிரப்பட்ட பட்டியல் இனி இல்லை." },
-  sharing: { en: "Creating link…", ar: "جارٍ إنشاء الرابط…", si: "සබැඳිය සාදමින්…", ta: "இணைப்பை உருவாக்குகிறது…" }
+             ta: "காற்புள்ளியுடன் பல பொருட்கள்: பால், ரொட்டி, முட்டை", sw: "Ongeza kadhaa kwa koma: maziwa, mkate, mayai" },
+  count:   { en: "{d} of {n} bought", ar: "تم شراء {d} من {n}", si: "{n} න් {d} ක් ගත්තා", ta: "{n} இல் {d} வாங்கப்பட்டது", sw: "{d} kati ya {n} vimenunuliwa" },
+  clear:   { en: "Remove bought", ar: "حذف المشتراة", si: "ගත් ඒවා ඉවත් කරන්න", ta: "வாங்கியவற்றை நீக்கு", sw: "Ondoa vilivyonunuliwa" },
+  empty:   { en: "Your list is empty. Add the first item above.", ar: "القائمة فارغة. أضف أول غرض في الأعلى.", si: "ලැයිස්තුව හිස්ය. ඉහතින් පළමු භාණ්ඩය එකතු කරන්න.", ta: "பட்டியல் காலியாக உள்ளது. மேலே முதல் பொருளைச் சேர்க்கவும்.", sw: "Orodha yako ni tupu. Ongeza bidhaa ya kwanza hapo juu." },
+  translating: { en: "Translating…", ar: "جارٍ الترجمة…", si: "පරිවර්තනය කරමින්…", ta: "மொழிபெயர்க்கிறது…", sw: "Inatafsiri…" },
+  retry:   { en: "Not translated yet. Tap to try again", ar: "لم تُترجم بعد. اضغط للمحاولة مجددًا", si: "තවම පරිවර්තනය නොවීය. නැවත උත්සාහ කිරීමට ඔබන්න", ta: "இன்னும் மொழிபெயர்க்கப்படவில்லை. மீண்டும் முயற்சிக்க அழுத்தவும்", sw: "Bado haijatafsiriwa. Gusa kujaribu tena" },
+  offline: { en: "No internet. Items will translate when you are back online.", ar: "لا يوجد إنترنت. ستُترجم الأغراض عند عودة الاتصال.", si: "අන්තර්ජාලය නැත. සම්බන්ධ වූ විට පරිවර්තනය වේ.", ta: "இணையம் இல்லை. இணைப்பு வந்ததும் மொழிபெயர்க்கப்படும்.", sw: "Hakuna intaneti. Bidhaa zitatafsiriwa ukirudi mtandaoni." },
+  copied:  { en: "Link copied. Paste it in WhatsApp.", ar: "تم نسخ الرابط. الصقه في واتساب.", si: "සබැඳිය පිටපත් කළා. WhatsApp හි අලවන්න.", ta: "இணைப்பு நகலெடுக்கப்பட்டது. WhatsApp-இல் ஒட்டவும்.", sw: "Kiungo kimenakiliwa. Kibandike kwenye WhatsApp." },
+  importQ: { en: "Open the shared list? It replaces the list on this phone.", ar: "فتح القائمة المشتركة؟ ستحل محل القائمة على هذا الهاتف.", si: "බෙදාගත් ලැයිස්තුව විවෘත කරන්නද? මෙම දුරකථනයේ ලැයිස්තුව ප්‍රතිස්ථාපනය වේ.", ta: "பகிரப்பட்ட பட்டியலைத் திறக்கவா? இது இந்த தொலைபேசியில் உள்ள பட்டியலை மாற்றும்.", sw: "Fungua orodha iliyoshirikiwa? Itachukua nafasi ya orodha iliyo kwenye simu hii." },
+  imported:{ en: "Shared list opened.", ar: "تم فتح القائمة المشتركة.", si: "බෙදාගත් ලැයිස්තුව විවෘත විය.", ta: "பகிரப்பட்ட பட்டியல் திறக்கப்பட்டது.", sw: "Orodha iliyoshirikiwa imefunguliwa." },
+  shareText: { en: "My grocery list", ar: "قائمة مشترياتي", si: "මගේ බඩු ලැයිස්තුව", ta: "எனது மளிகைப் பட்டியல்", sw: "Orodha yangu ya manunuzi" },
+  remove:  { en: "Remove", ar: "حذف", si: "ඉවත් කරන්න", ta: "நீக்கு", sw: "Ondoa" },
+  live:    { en: "Shared list · updates live", ar: "قائمة مشتركة · تتحدث مباشرة", si: "බෙදාගත් ලැයිස්තුව · සජීවීව යාවත්කාලීන වේ", ta: "பகிரப்பட்ட பட்டியல் · நேரலையில் புதுப்பிக்கப்படும்", sw: "Orodha iliyoshirikiwa · inasasishwa moja kwa moja" },
+  offlineSync: { en: "Offline · changes will sync later", ar: "غير متصل · ستتم المزامنة لاحقًا", si: "නොබැඳි · පසුව සමමුහුර්ත වේ", ta: "இணைப்பில்லை · பின்னர் ஒத்திசைக்கப்படும்", sw: "Nje ya mtandao · mabadiliko yatasawazishwa baadaye" },
+  notFound:{ en: "This shared list no longer exists.", ar: "هذه القائمة المشتركة لم تعد موجودة.", si: "මෙම බෙදාගත් ලැයිස්තුව තවදුරටත් නොමැත.", ta: "இந்த பகிரப்பட்ட பட்டியல் இனி இல்லை.", sw: "Orodha hii iliyoshirikiwa haipo tena." },
+  newList: { en: "Start a new empty list", ar: "ابدأ قائمة جديدة فارغة", si: "නව හිස් ලැයිස්තුවක් අරඹන්න", ta: "புதிய வெற்று பட்டியலைத் தொடங்கு", sw: "Anza orodha mpya tupu" },
+  newListQ:{ en: "Start a new empty list on this phone? The shared list stays for the others, and you can open it again from its link.",
+             ar: "بدء قائمة جديدة فارغة على هذا الهاتف؟ تبقى القائمة المشتركة للآخرين، ويمكنك فتحها مجددًا من رابطها.",
+             si: "මෙම දුරකථනයේ නව හිස් ලැයිස්තුවක් අරඹන්නද? බෙදාගත් ලැයිස්තුව අනෙක් අයට පවතින අතර එහි සබැඳියෙන් නැවත විවෘත කළ හැක.",
+             ta: "இந்த தொலைபேசியில் புதிய வெற்று பட்டியலைத் தொடங்கவா? பகிரப்பட்ட பட்டியல் மற்றவர்களுக்கு இருக்கும், அதன் இணைப்பிலிருந்து மீண்டும் திறக்கலாம்.", sw: "Anza orodha mpya tupu kwenye simu hii? Orodha iliyoshirikiwa inabaki kwa wengine, na unaweza kuifungua tena kupitia kiungo chake." },
+  sharing: { en: "Creating link…", ar: "جارٍ إنشاء الرابط…", si: "සබැඳිය සාදමින්…", ta: "இணைப்பை உருவாக்குகிறது…", sw: "Inatengeneza kiungo…" }
 };
 
-// Common items, ready instantly and checked for shop wording: [English, Arabic, Sinhala, Tamil].
+// Common items, ready instantly: [English, Arabic, Sinhala, Tamil, Swahili]. An empty word is filled in by the online translator.
 const DICT = [
-  ["milk","حليب","කිරි","பால்"], ["bread","خبز","පාන්","ரொட்டி"], ["eggs","بيض","බිත්තර","முட்டை"],
-  ["butter","زبدة","බටර්","வெண்ணெய்"], ["cheese","جبن","චීස්","சீஸ்"], ["chicken","دجاج","කුකුළු මස්","கோழி இறைச்சி"],
-  ["beef","لحم بقري","ගව මස්","மாட்டிறைச்சி"], ["lamb","لحم غنم","බැටළු මස්","ஆட்டிறைச்சி"], ["fish","سمك","මාළු","மீன்"],
-  ["apples","تفاح","ඇපල්","ஆப்பிள்"], ["bananas","موز","කෙසෙල්","வாழைப்பழம்"], ["oranges","برتقال","දොඩම්","ஆரஞ்சு"],
-  ["grapes","عنب","මිදි","திராட்சை"], ["mango","مانجو","අඹ","மாம்பழம்"], ["watermelon","بطيخ","කොමඩු","தர்பூசணி"],
-  ["dates","تمر","රටඉඳි","பேரீச்சம்பழம்"], ["lemons","ليمون","දෙහි","எலுமிச்சை"], ["tomatoes","طماطم","තක්කාලි","தக்காளி"],
-  ["potatoes","بطاطس","අල","உருளைக்கிழங்கு"], ["onions","بصل","ලූණු","வெங்காயம்"], ["garlic","ثوم","සුදු ළූණු","பூண்டு"],
-  ["carrots","جزر","කැරට්","கேரட்"], ["cucumber","خيار","පිපිඤ්ඤා","வெள்ளரிக்காய்"], ["lettuce","خس","සලාද කොළ","கீரை"],
-  ["eggplant","باذنجان","වම්බටු","கத்தரிக்காய்"], ["green chili","فلفل أخضر","අමු මිරිස්","பச்சை மிளகாய்"],
-  ["bell pepper","فلفل رومي","මාළු මිරිස්","குடமிளகாய்"], ["ginger","زنجبيل","ඉඟුරු","இஞ்சி"],
-  ["coriander","كزبرة","කොත්තමල්ලි කොළ","கொத்தமல்லி"], ["parsley","بقدونس","පාස්ලි","பார்ஸ்லி"], ["mint","نعناع","මින්ට් කොළ","புதினா"],
-  ["rice","أرز","සහල්","அரிசி"], ["pasta","معكرونة","පාස්තා","பாஸ்தா"], ["flour","طحين","පිටි","மாவு"],
-  ["sugar","سكر","සීනි","சர்க்கரை"], ["salt","ملح","ලුණු","உப்பு"], ["cooking oil","زيت طبخ","පිසීමේ තෙල්","சமையல் எண்ணெய்"],
-  ["lentils","عدس","පරිප්පු","பருப்பு"], ["chickpeas","حمص","කඩල","கொண்டைக்கடலை"], ["honey","عسل","මී පැණි","தேன்"],
-  ["cardamom","هيل","එනසාල්","ஏலக்காய்"], ["cumin","كمون","සූදුරු","சீரகம்"], ["turmeric","كركم","කහ","மஞ்சள்"],
-  ["cinnamon","قرفة","කුරුඳු","இலவங்கப்பட்டை"], ["black pepper","فلفل أسود","ගම්මිරිස්","மிளகு"],
-  ["chili powder","فلفل أحمر مطحون","මිරිස් කුඩු","மிளகாய் தூள்"], ["coconut","جوز الهند","පොල්","தேங்காய்"],
-  ["coconut milk","حليب جوز الهند","පොල් කිරි","தேங்காய் பால்"], ["yogurt","زبادي","යෝගට්","தயிர்"],
-  ["laban","لبن","ලබන් (මෝරු කිරි)","மோர்"], ["water","ماء","වතුර","தண்ணீர்"], ["juice","عصير","යුෂ","பழச்சாறு"],
-  ["coffee","قهوة","කෝපි","காபி"], ["tea","شاي","තේ","தேநீர்"], ["soap","صابون","සබන්","சோப்பு"],
-  ["dish soap","سائل جلي","පිඟන් සෝදන දියර","பாத்திரம் கழுவும் திரவம்"], ["laundry detergent","مسحوق غسيل","රෙදි සෝදන කුඩු","சலவை தூள்"],
-  ["tissues","مناديل","ටිෂූ","டிஷ்யூ"], ["toilet paper","ورق تواليت","වැසිකිලි කඩදාසි","கழிப்பறை காகிதம்"]
+  ["milk","حليب","කිරි","பால்","maziwa"], ["bread","خبز","පාන්","ரொட்டி","mkate"], ["eggs","بيض","බිත්තර","முட்டை","mayai"],
+  ["butter","زبدة","බටර්","வெண்ணெய்","siagi"], ["cheese","جبن","චීස්","சீஸ்","jibini"], ["chicken","دجاج","කුකුළු මස්","கோழி இறைச்சி","nyama ya kuku"],
+  ["beef","لحم بقري","ගව මස්","மாட்டிறைச்சி","nyama ya ng'ombe"], ["lamb","لحم غنم","බැටළු මස්","ஆட்டிறைச்சி","nyama ya kondoo"], ["fish","سمك","මාළු","மீன்","samaki"],
+  ["apples","تفاح","ඇපල්","ஆப்பிள்","matofaa"], ["bananas","موز","කෙසෙල්","வாழைப்பழம்","ndizi"], ["oranges","برتقال","දොඩම්","ஆரஞ்சு","machungwa"],
+  ["grapes","عنب","මිදි","திராட்சை","zabibu"], ["mango","مانجو","අඹ","மாம்பழம்","embe"], ["watermelon","بطيخ","කොමඩු","தர்பூசணி","tikiti maji"],
+  ["dates","تمر","රටඉඳි","பேரீச்சம்பழம்","tende"], ["lemons","ليمون","දෙහි","எலுமிச்சை","malimau"], ["tomatoes","طماطم","තක්කාලි","தக்காளி","nyanya"],
+  ["potatoes","بطاطس","අල","உருளைக்கிழங்கு","viazi"], ["onions","بصل","ලූණු","வெங்காயம்","vitunguu"], ["garlic","ثوم","සුදු ළූණු","பூண்டு","vitunguu saumu"],
+  ["carrots","جزر","කැරට්","கேரட்","karoti"], ["cucumber","خيار","පිපිඤ්ඤා","வெள்ளரிக்காய்","tango"], ["lettuce","خس","සලාද කොළ","கீரை",""],
+  ["eggplant","باذنجان","වම්බටු","கத்தரிக்காய்","biringanya"], ["green chili","فلفل أخضر","අමු මිරිස්","பச்சை மிளகாய்","pilipili mbichi"],
+  ["bell pepper","فلفل رومي","මාළු මිරිස්","குடமிளகாய்","pilipili hoho"], ["ginger","زنجبيل","ඉඟුරු","இஞ்சி","tangawizi"],
+  ["coriander","كزبرة","කොත්තමල්ලි කොළ","கொத்தமல்லி","giligilani"], ["parsley","بقدونس","පාස්ලි","பார்ஸ்லி",""], ["mint","نعناع","මින්ට් කොළ","புதினா","nanaa"],
+  ["rice","أرز","සහල්","அரிசி","mchele"], ["pasta","معكرونة","පාස්තා","பாஸ்தா","tambi"], ["flour","طحين","පිටි","மாவு","unga"],
+  ["sugar","سكر","සීනි","சர்க்கரை","sukari"], ["salt","ملح","ලුණු","உப்பு","chumvi"], ["cooking oil","زيت طبخ","පිසීමේ තෙල්","சமையல் எண்ணெய்","mafuta ya kupikia"],
+  ["lentils","عدس","පරිප්පු","பருப்பு","dengu"], ["chickpeas","حمص","කඩල","கொண்டைக்கடலை",""], ["honey","عسل","මී පැණි","தேன்","asali"],
+  ["cardamom","هيل","එනසාල්","ஏலக்காய்","iliki"], ["cumin","كمون","සූදුරු","சீரகம்","jira"], ["turmeric","كركم","කහ","மஞ்சள்","manjano"],
+  ["cinnamon","قرفة","කුරුඳු","இலவங்கப்பட்டை","mdalasini"], ["black pepper","فلفل أسود","ගම්මිරිස්","மிளகு","pilipili manga"],
+  ["chili powder","فلفل أحمر مطحون","මිරිස් කුඩු","மிளகாய் தூள்","pilipili ya unga"], ["coconut","جوز الهند","පොල්","தேங்காய்","nazi"],
+  ["coconut milk","حليب جوز الهند","පොල් කිරි","தேங்காய் பால்","tui la nazi"], ["yogurt","زبادي","යෝගට්","தயிர்","mtindi"],
+  ["laban","لبن","ලබන් (මෝරු කිරි)","மோர்","maziwa lala"], ["water","ماء","වතුර","தண்ணீர்","maji"], ["juice","عصير","යුෂ","பழச்சாறு","juisi"],
+  ["coffee","قهوة","කෝපි","காபி","kahawa"], ["tea","شاي","තේ","தேநீர்","chai"], ["soap","صابون","සබන්","சோப்பு","sabuni"],
+  ["dish soap","سائل جلي","පිඟන් සෝදන දියර","பாத்திரம் கழுவும் திரவம்","sabuni ya vyombo"], ["laundry detergent","مسحوق غسيل","රෙදි සෝදන කුඩු","சலவை தூள்","sabuni ya kufulia"],
+  ["tissues","مناديل","ටිෂූ","டிஷ்யூ","tishu"], ["toilet paper","ورق تواليت","වැසිකිලි කඩදාසි","கழிப்பறை காகிதம்","karatasi ya chooni"]
 ];
 // Extra spellings people commonly type, pointing to the entries above.
 const ALIASES = {
@@ -232,16 +239,32 @@ function detectLang(t) {
 }
 
 const DICT_INDEX = new Map();
-DICT.forEach(row => row.forEach(word => DICT_INDEX.set(norm(word), row)));
+DICT.forEach(row => row.forEach(word => { if (word) DICT_INDEX.set(norm(word), row); }));
 Object.entries(ALIASES).forEach(([alias, en]) => {
   const row = DICT.find(r => r[0] === en);
   if (row) DICT_INDEX.set(norm(alias), row);
 });
+// Swahili extras.
+Object.entries({ "yai": "eggs", "kitunguu": "onions", "kiazi": "potatoes", "tufaha": "apples", "mafuta": "cooking oil" })
+  .forEach(([alias, en]) => { const row = DICT.find(r => r[0] === en); if (row) DICT_INDEX.set(norm(alias), row); });
 
 function lookup(text) {
   const row = DICT_INDEX.get(norm(text));
-  return row ? { en: row[0], ar: row[1], si: row[2], ta: row[3] } : null;
+  if (!row) return null;
+  const tr = {};
+  LANGS.forEach((l, k) => { if (row[k]) tr[l] = row[k]; });
+  return tr;
 }
+
+// Which language a known word is written in (English and Swahili share the same alphabet).
+function knownLang(text) {
+  const row = DICT_INDEX.get(norm(text));
+  if (!row) return null;
+  const n = norm(text);
+  const k = row.findIndex(w => w && norm(w) === n);
+  return k >= 0 ? LANGS[k] : null;
+}
+const isLatin = lang => lang === "en" || lang === "sw";
 
 // ---------- Online translation ----------
 
@@ -257,8 +280,10 @@ async function translateOne(text, from, to) {
     if (out) return out;
     throw new Error("empty");
   } catch (e) {
+    const src = from === "auto" ? (viewLang === "sw" ? "sw" : "en") : from;
+    if (src === to) return text;
     const url = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) +
-      "&langpair=" + from + "|" + to;
+      "&langpair=" + src + "|" + to;
     const res = await fetchWithTimeout(url, 8000);
     if (!res.ok) throw new Error("http " + res.status);
     const data = await res.json();
@@ -286,7 +311,8 @@ async function translateItem(id) {
   const tr = {};
   let failed = false;
   await Promise.all(LANGS.filter(l => !item.tr[l]).map(async to => {
-    try { tr[to] = await translateOne(item.text, item.lang, to); }
+    const from = isLatin(item.lang) && !lookup(item.text) ? "auto" : item.lang;
+    try { tr[to] = await translateOne(item.text, from, to); }
     catch (e) { failed = true; }
   }));
   inFlight.delete(id);
@@ -476,7 +502,7 @@ function listGone() {
 }
 
 function openListFromPath() {
-  const m = location.pathname.match(/^\/l\/([a-z0-9]{4,12})\/?$/i);
+  const m = location.pathname.match(/^\/l\/([a-z0-9]{4,16})\/?$/i);
   if (m) {
     const id = m[1].toLowerCase();
     if (id !== listId) {
@@ -503,19 +529,35 @@ function addFromInput() {
   input.value = "";
   const added = [];
   for (const text of parts) {
-    const lang = detectLang(text);
     const known = lookup(text);
-    const item = { id: newId(), text, lang, done: false, tr: known ? known : { [lang]: text } };
+    let lang = detectLang(text);
+    // Latin letters could be English or Swahili: use the word list, otherwise the language the app is shown in.
+    if (lang === "en") lang = knownLang(text) || (viewLang === "sw" ? "sw" : "en");
+    // For unknown Latin-script words, leave English and Swahili to the translator, which detects the language.
+    const tr = known ? known : (isLatin(lang) ? {} : { [lang]: text });
+    const item = { id: newId(), text, lang, done: false, tr };
     added.push(item);
     dispatch({ type: "add", item });
   }
   input.focus();
-  added.filter(i => !lookup(i.text)).forEach(i => translateItem(i.id));
+  added.filter(i => LANGS.some(l => !i.tr[l])).forEach(i => translateItem(i.id));
 }
 
 function toggle(id) {
   const item = items.find(i => i.id === id);
   if (item) dispatch({ type: "toggle", id, done: !item.done });
+}
+
+function startNewList() {
+  if (!confirm(t("newListQ"))) return;
+  listId = null;
+  base = [];
+  pending = [];
+  serverV = 0;
+  recompute();
+  history.replaceState(null, "", "/");
+  saveLocal();
+  render();
 }
 
 function removeItem(id) { dispatch({ type: "remove", id }); }
@@ -563,7 +605,7 @@ async function share() {
 
 // Long links from the earlier version still open.
 function encodeList(list) {
-  const compact = list.map(i => [i.text, i.lang, i.done ? 1 : 0, i.tr.en || "", i.tr.ar || "", i.tr.si || "", i.tr.ta || ""]);
+  const compact = list.map(i => [i.text, i.lang, i.done ? 1 : 0, i.tr.en || "", i.tr.ar || "", i.tr.si || "", i.tr.ta || "", i.tr.sw || ""]);
   const bytes = new TextEncoder().encode(JSON.stringify(compact));
   let bin = "";
   bytes.forEach(b => { bin += String.fromCharCode(b); });
@@ -578,9 +620,9 @@ function decodeList(code) {
   if (!Array.isArray(compact)) throw new Error("bad list");
   return compact.filter(r => Array.isArray(r) && r[0]).map(r => {
     const tr = {};
-    ["en", "ar", "si", "ta"].forEach((l, k) => { if (r[3 + k]) tr[l] = String(r[3 + k]); });
+    ["en", "ar", "si", "ta", "sw"].forEach((l, k) => { if (r[3 + k]) tr[l] = String(r[3 + k]); });
     const lang = LANGS.includes(r[1]) ? r[1] : detectLang(String(r[0]));
-    if (!tr[lang]) tr[lang] = String(r[0]);
+    if (!tr[lang] && !isLatin(lang)) tr[lang] = String(r[0]);
     return { id: newId(), text: String(r[0]), lang, done: !!r[2], tr };
   });
 }
@@ -619,6 +661,8 @@ function render() {
   document.getElementById("tip").textContent = t("tip");
   document.getElementById("clearBtn").textContent = t("clear");
   document.getElementById("empty").textContent = t("empty");
+  document.getElementById("newBtn").textContent = t("newList");
+  document.getElementById("newBtn").style.display = (listId || items.length) ? "block" : "none";
 
   const langs = document.getElementById("langs");
   langs.innerHTML = "";
@@ -722,6 +766,7 @@ document.getElementById("addBtn").addEventListener("click", addFromInput);
 document.getElementById("itemInput").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addFromInput(); } });
 document.getElementById("clearBtn").addEventListener("click", removeBought);
 document.getElementById("shareBtn").addEventListener("click", share);
+document.getElementById("newBtn").addEventListener("click", startNewList);
 window.addEventListener("hashchange", importFromHash);
 window.addEventListener("online", () => { failedTr.clear(); translateAllMissing(); flush(); refresh(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
